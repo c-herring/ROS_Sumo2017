@@ -5,6 +5,7 @@
 #include <ros/console.h>
 #include <std_msgs/UInt32MultiArray.h>
 #include <geometry_msgs/Twist.h>
+#include <unistd.h>
 
 
 //#define SERIAL_PORT "/dev/ttyACM1"
@@ -16,6 +17,7 @@ class STM32_COMMS {
 public:
 	STM32_COMMS();
 	void RecieveData(void);
+	void setVelocities(void);
 	void DeInit(void);
 	
 
@@ -23,8 +25,10 @@ private:
 	void PublishIRSensor(void);
 	void PublishLineSensor(void);
 	void InitialseVariables(void);
-	void TwistCallback(const )
+
 	
+	// Callbacks
+	void set_vel_callback(const geometry_msgs::Twist msg);
 
 	// Ros nodehandle. Main access point for all ROS comms
 	ros::NodeHandle nh;
@@ -46,8 +50,8 @@ private:
 	// Message Objects
 	geometry_msgs::Twist vel_msg;
 	uint32_t maxPWMPulseWidth;
-	uint32_t L_Motor;
-	uint32_t R_Motor;
+	int32_t L_Motor;
+	int32_t R_Motor;
 
 
 	int RXLen;
@@ -55,11 +59,13 @@ private:
 	uint32_t sensorData[8];
 	uint8_t lineSensorData;
 
+	// Pubs
 	ros::Publisher sensor_IR_Publisher;
 	ros::Publisher sensor_Line_Publisher;
 
-	// Callbacks
-	void set_vel_callback(const geometry_msgs::Twist msg);
+	// Subs
+	ros::Subscriber set_vel; // Set velocities
+	
 };
 
 
@@ -73,6 +79,8 @@ void STM32_COMMS::InitialseVariables(void)
 	RXStrState = 0;
 	lineSensorData = 0x00;
 	maxPWMPulseWidth = 7999;
+	velTXbufferLen = 19;
+	velTXbufferHeaderLen = 6;
 	for (int i = 0; i < 8; i++) sensorData[i] = 0;
 }
 
@@ -113,6 +121,9 @@ STM32_COMMS::STM32_COMMS()
 	{
 		std::cout << "Opened serial\n";
 	}
+
+	// Subscribe to topics
+	set_vel = nh.subscribe<geometry_msgs::Twist>("vel_set", 100, &STM32_COMMS::set_vel_callback, this);
 	
 }
 
@@ -133,7 +144,7 @@ void STM32_COMMS::RecieveData()
 		newChar = (uint8_t)serialGetchar(hserial);
 		
 		//std::cout << "-" << RXStrState << "-";
-		//std::cout << newChar;
+		std::cout << newChar;
 		//if (RXStrState == 0) std::cout << std::endl;
 		// If we are still looking through header, make sure it matches the expected character, otherwise reset
 		if (RXStrState < RXHeaderLen)
@@ -185,32 +196,42 @@ void STM32_COMMS::RecieveData()
 **/
 void STM32_COMMS::set_vel_callback(const geometry_msgs::Twist msg)
 {
-	L_Motor = (uint32_t)msg.linear.x*maxPWMPulseWidth;
-	R_Motor = (uint32_t)msg.linear.y*maxPWMPulseWidth;
+	L_Motor = (int32_t)(msg.linear.x*maxPWMPulseWidth);
+	R_Motor = (int32_t)(msg.linear.y*maxPWMPulseWidth);
 }
 
 /**
 *	Actually set the velocities.
 *
 **/
-void MotorController::setVelocities()
+void STM32_COMMS::setVelocities()
 {
 	//printf("Setting L_motor = %f\tR_motor = %f\n", L_motor, R_motor);
+	L_Motor += 100;
+	R_Motor += 100;
+	L_Motor %= 7999;
+	R_Motor %= 7999;
 	serialFlush(hserial);
+	//memcpy(TXbuffer, "start!LaaaaRaaaaend", 19);
 	memcpy(TXbuffer, "start!", 6);
-	memcpy(TXbuffervelTXbufferLen-3, "end", 3)
-	TXbuffer[7] = 'L';
-	for (int i=1; i < 4; i++)
+	memcpy(TXbuffer+velTXbufferLen-3, "end", 3);
+	TXbuffer[6] = 'L';
+	for (int i=0; i < 4; i++)
 	{
-		TXbuffer[8+i] = (uint8_t)(L_motor >> 8*i)&0xFF;
+		TXbuffer[7+i] = (uint8_t)((L_Motor >> 8*i)&0xFF);
 	}
-	TXbuffer[12] = 'R';
-	for (int i=1; i < 4; i++)
+	TXbuffer[11] = 'R';
+	for (int i=0; i < 4; i++)
 	{
-		TXbuffer[13+i] = (uint8_t)(R_motor >> 8*i)&0xFF;
+		TXbuffer[12+i] = (uint8_t)((R_Motor >> 8*i)&0xFF);
 	}
-	printf("%s\n", TXbuffer);
-	serialPrintf(hserial, TXbuffer);
+	printf("L = %ld, R = %ld, %s\n", L_Motor, R_Motor, TXbuffer);
+	//serialFlush(hserial);
+	for (int i = 0; i < 19; i++)
+	{
+		serialPutchar (hserial, (unsigned char)TXbuffer[i]) ;
+	}
+	//write(hserial, (const char*)TXbuffer, 19);
 
 }
 
@@ -230,6 +251,7 @@ int main(int argc, char** argv)
 	while (ros::ok())
 	{
 		STM32_Comms.RecieveData();
+		STM32_Comms.setVelocities();
 
 		// Spin then sleep
 		ros::spinOnce();
