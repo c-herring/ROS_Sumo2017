@@ -81,6 +81,8 @@ void STM32_COMMS::InitialseVariables(void)
 	maxPWMPulseWidth = 7999;
 	velTXbufferLen = 19;
 	velTXbufferHeaderLen = 6;
+	L_Motor = 0;
+	R_Motor = 0;
 	for (int i = 0; i < 8; i++) sensorData[i] = 0;
 }
 
@@ -207,10 +209,10 @@ void STM32_COMMS::set_vel_callback(const geometry_msgs::Twist msg)
 void STM32_COMMS::setVelocities()
 {
 	//printf("Setting L_motor = %f\tR_motor = %f\n", L_motor, R_motor);
-	L_Motor += 100;
-	R_Motor += 100;
-	L_Motor %= 7999;
-	R_Motor %= 7999;
+	//L_Motor += 100;
+	//R_Motor += 100;
+	//L_Motor %= 7999;
+	//R_Motor %= 7999;
 	serialFlush(hserial);
 	//memcpy(TXbuffer, "start!LaaaaRaaaaend", 19);
 	memcpy(TXbuffer, "start!", 6);
