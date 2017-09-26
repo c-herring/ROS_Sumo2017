@@ -4,6 +4,7 @@
 #include <wiringSerial.h>
 #include <ros/console.h>
 #include <std_msgs/UInt32MultiArray.h>
+#include <std_msgs/UInt8.h>
 #include <geometry_msgs/Twist.h>
 #include <unistd.h>
 
@@ -102,6 +103,16 @@ void STM32_COMMS::PublishIRSensor(void)
 	sensor_IR_Publisher.publish(array);
 }
 
+/**
+** Publish a Byte that contains the state of the line sensors
+**/
+void STM32_COMMS::PublishLineSensor(void)
+{
+	std_msgs::UInt8 data;
+	data.data = lineSensorData;
+	sensor_Line_Publisher.publish(data);
+}
+
 STM32_COMMS::STM32_COMMS()
 {
 	// Get parameters
@@ -111,7 +122,8 @@ STM32_COMMS::STM32_COMMS()
 	InitialseVariables();
 
 	// Attach advertisers
-	sensor_IR_Publisher = nh.advertise<std_msgs::UInt32MultiArray>("IR_sensor", 1);
+	sensor_IR_Publisher 	= nh.advertise<std_msgs::UInt32MultiArray>("IR_sensor", 1);
+	sensor_Line_Publisher	= nh.advertise<std_msgs::UInt8>("Line_sensor", 1);
 
 	// -------- Set up wiringPi --------
 	wiringPiSetupSys();
@@ -146,7 +158,7 @@ void STM32_COMMS::RecieveData()
 		newChar = (uint8_t)serialGetchar(hserial);
 		
 		//std::cout << "-" << RXStrState << "-";
-		std::cout << newChar;
+		//std::cout << newChar;
 		//if (RXStrState == 0) std::cout << std::endl;
 		// If we are still looking through header, make sure it matches the expected character, otherwise reset
 		if (RXStrState < RXHeaderLen)
@@ -182,6 +194,7 @@ void STM32_COMMS::RecieveData()
 		if (RXStrState >= RXLen)
 		{
 			PublishIRSensor();
+			PublishLineSensor();
 			for (int i = 0; i < 8; i++) sensorData[i] = 0;
 			RXStrState = 0;
 			
@@ -227,7 +240,7 @@ void STM32_COMMS::setVelocities()
 	{
 		TXbuffer[12+i] = (uint8_t)((R_Motor >> 8*i)&0xFF);
 	}
-	printf("L = %ld, R = %ld, %s\n", L_Motor, R_Motor, TXbuffer);
+	//printf("L = %ld, R = %ld, %s\n", L_Motor, R_Motor, TXbuffer);
 	//serialFlush(hserial);
 	for (int i = 0; i < 19; i++)
 	{
@@ -247,11 +260,12 @@ int main(int argc, char** argv)
 	STM32_COMMS STM32_Comms;
 
 
-	std::cout << "Hello\n" << std::endl;
+	std::cout << "Starting Comms Node Loop.\n" << std::endl;
 
 	ros::Rate loop_rate(50);
 	while (ros::ok())
 	{
+		// Check if there is data to recieve. If there is then recieve it and parse it
 		STM32_Comms.RecieveData();
 		STM32_Comms.setVelocities();
 
