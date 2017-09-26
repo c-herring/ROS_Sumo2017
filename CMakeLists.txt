@@ -163,13 +163,26 @@ include_directories(
 add_executable(sumo_test_node src/SumoTest.cpp)
 #target_link_libraries(sumo_test_node ${catkin_LIBRARIES} ${WIRINGPI_LIBRARY} ${PCL_LIBRARIES})
 target_link_libraries(sumo_test_node ${catkin_LIBRARIES} ${WIRINGPI_LIBRARY})
-add_dependencies(sumo_test_node ch_bot_generate_messages_cpp wiringPi)
+add_dependencies(sumo_test_node sumo2017_generate_messages_cpp wiringPi)
 
 
 add_executable(stm32_comms_node src/STM32_Comms_Node.cpp)
 #target_link_libraries(sumo_test_node ${catkin_LIBRARIES} ${WIRINGPI_LIBRARY} ${PCL_LIBRARIES})
 target_link_libraries(stm32_comms_node ${catkin_LIBRARIES} ${WIRINGPI_LIBRARY})
-add_dependencies(stm32_comms_node ch_bot_generate_messages_cpp wiringPi)
+add_dependencies(stm32_comms_node sumo2017_generate_messages_cpp wiringPi)
+
+add_executable(sumo2017_node src/Sumo2017_node.cpp)
+target_link_libraries(sumo2017_node ${catkin_LIBRARIES})
+add_dependencies(sumo2017_node sumo2017_generate_messages_cpp)
+
+add_executable(Sumo2017_teleop_key_node src/Sumo2017_teleop_key_node.cpp)
+target_link_libraries(Sumo2017_teleop_key_node ${catkin_LIBRARIES})
+add_dependencies(Sumo2017_teleop_key_node sumo2017_generate_messages_cpp)
+
+
+
+
+
 
 #############
 ## Install ##
