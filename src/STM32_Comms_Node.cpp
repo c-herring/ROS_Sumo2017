@@ -112,6 +112,15 @@ void STM32_COMMS::PublishIRSensor(void)
 	std_msgs::UInt32MultiArray array;
 	array.data.clear();
 
+
+	// Swap elements 4 and 5, and 6 and 7 because for some reason they are scanned in wrong order..
+	uint32_t tempVal = sensorData[4];
+	sensorData[4] = sensorData[5];
+	sensorData[5] = tempVal;
+	tempVal = sensorData[6];
+	sensorData[6] = sensorData[7];
+	sensorData[7] = tempVal;
+
 	for (int i = 0; i < 8; i++)
 	{
 		//std::cout << i << "= " << sensorData[i] << "\t";

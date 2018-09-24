@@ -20,22 +20,28 @@
 #define LINE_SW 2
 #define LINE_NW 3
 
-#define IR_TriggerThreshold 	300
-#define Line_TriggerThreshold 	600
+#define IR_TriggerThreshold 	1200
+#define IR_ATTACK_THRESH 		3600
+#define Line_TriggerThreshold 	500
+
+#define HARD_TURN_SPEED 	0.8
+#define SOFT_TURN_SPEED 	0.5
+#define ATTACK_SPEED 		1.0
+#define RETREAT_SPEED		0.5
+#define SEEK_SPEED 			0.68
 
 class Sumo2017 {
 public:
 	// Public functions
 	Sumo2017();
 	void spin(void);
-	void keyLoop();
 
 private:
 
 	// Private functions
 	//void ReadIRSensors();
 	//void ReadLineSensors();
-	void PublishMotorTwist(void);
+	void PublishMotorTwist(geometry_msgs::Twist twist_msg);
 
 
 	// Callbacks
@@ -63,7 +69,9 @@ private:
 	uint8_t 	lineSensorState;
 	uint8_t 	lastLineSensorState;
 
-	uint8_t 	defaultSeekDir;
+	int8_t 	defaultSeekDir;
+
+	bool attackMode;
 
 
 
@@ -83,6 +91,7 @@ Sumo2017::Sumo2017()
 	lineSensorState = 0;
 	lastLineSensorState = 0;
 
+	attackMode = false;
 
 	// Attach Advertisers
 	vel_set_pub 		= nh.advertise<geometry_msgs::Twist>("vel_set", 1);
@@ -97,7 +106,7 @@ Sumo2017::Sumo2017()
 **/
 void Sumo2017::spin()
 {
-	std::cout << "spinning" << std::endl;
+	//std::cout << "spinning" << std::endl;
 
 	geometry_msgs::Twist twist_msg;
 
@@ -109,12 +118,17 @@ void Sumo2017::spin()
 		// If it was one of the north sensors then set default seek direction to be reverse
 		if ( (lineSensorState >> LINE_NE) & 0x01 | (lineSensorState >> LINE_NW) & 0x01)
 		{
-			defaultSeekDir = -1
+			defaultSeekDir = -1;
+			std::cout << "I see NE or NW line";
 		}
 		else
 		{
 			defaultSeekDir = 1;
+			std::cout << "I see SE or SW line";
 		}
+		// retreat from line
+		twist_msg.linear.x = defaultSeekDir * RETREAT_SPEED;
+		twist_msg.linear.y = defaultSeekDir * RETREAT_SPEED;
 	}
 	else
 	{
@@ -122,21 +136,49 @@ void Sumo2017::spin()
 		switch (triggered_IR)
 		{
 			case IR_N:
+				// If we are in attack mode then gung ho it
+				twist_msg.linear.x = (attackMode) ? ATTACK_SPEED : SEEK_SPEED;
+				twist_msg.linear.y = (attackMode) ? ATTACK_SPEED : SEEK_SPEED;
 				break;
-			case IR_NE:
-				break;
-			case IR_E:
-				break;
-			case IR_SE:
-				break;
+
 			case IR_S:
+				// If we are in attack mode then gung ho it
+				twist_msg.linear.x = -((attackMode) ? ATTACK_SPEED : SEEK_SPEED);
+				twist_msg.linear.y = -((attackMode) ? ATTACK_SPEED : SEEK_SPEED);
 				break;
+
+			case IR_NE:
 			case IR_SW:
+				//If we saw it on the Northeast or southwest sensor then turn CW
+				twist_msg.linear.x =  SOFT_TURN_SPEED;
+				twist_msg.linear.y = -SOFT_TURN_SPEED;
 				break;
-			case IR_W:
+
+			case IR_E:
+				// If east sensor is triggered then turn based on the following criteria:
+					// If last sensor was North/Northeast then CCW
+					// If lst sensor was South/Southeast then CW
+					// Default CW
+				twist_msg.linear.x =  HARD_TURN_SPEED;
+				twist_msg.linear.y = -HARD_TURN_SPEED;
 				break;
+
+			case IR_SE:
 			case IR_NW:
+				//If we saw it on the northwest or southeast sensor then turn CCW
+				twist_msg.linear.x = -SOFT_TURN_SPEED;
+				twist_msg.linear.y = SOFT_TURN_SPEED;
+
+			case IR_W:
+				
+				twist_msg.linear.x = -HARD_TURN_SPEED;
+				twist_msg.linear.y = HARD_TURN_SPEED;
 				break;
+
+			default:
+			// Seek
+				twist_msg.linear.x = defaultSeekDir * SEEK_SPEED;
+				twist_msg.linear.y = defaultSeekDir * SEEK_SPEED;
 		}
 
 		//If north sensor then drive forward
@@ -159,7 +201,8 @@ void Sumo2017::spin()
 
 	}
 
-	PublishMotorTwist();
+	std::cout << "Pub x: " << twist_msg.linear.x << " y = " << twist_msg.linear.y << std::endl;
+	PublishMotorTwist(twist_msg);
 }
 
 /**
@@ -167,12 +210,11 @@ void Sumo2017::spin()
 **/
 void Sumo2017::IR_sensor_Callback(const std_msgs::UInt32MultiArray msg)
 {
-	std::cout << "Got an IR sensor message" << std::endl;
+	//std::cout << "Got an IR sensor message" << std::endl;
 	uint32_t tempMax = 0;
 	uint32_t tempMaxIndex = -1;
 	// Search for maximum value in sensor values (as long as it is above the detection threshold)
-	int i;
-	for (i =0; i < 8; i++)
+	for (int i =0; i < 8; i++)
 	{
 		if (msg.data[i] > IR_TriggerThreshold & msg.data[i] > tempMax)
 		{
@@ -181,13 +223,29 @@ void Sumo2017::IR_sensor_Callback(const std_msgs::UInt32MultiArray msg)
 		}
 	}
 	// If we found one (ie index is not -1) then update the triggered and last triggered states.
+	//if (tempMaxIndex >= 0)
+	//{
+	// If this new one is different to last then update the last
+	if (lastTriggered_IR != tempMaxIndex)
+	{
+		lastTriggered_IR = triggered_IR;
+		lastTriggeredVal_IR = triggeredVal_IR;
+	}
+	// Update the sensor value
+	triggered_IR = tempMaxIndex;
 	if (tempMaxIndex >= 0)
 	{
-		lastTriggered_IR = triggered_IT;
-		lastTriggeredVal_IR = triggeredVal_IR;
-		triggered_IR = i;
-		triggeredVal_IR = msg.data[i];
+		triggeredVal_IR = msg.data[tempMaxIndex];
 	}
+
+	// Check if this puts us in attack mode or not
+	if (triggeredVal_IR > IR_ATTACK_THRESH & (triggered_IR == IR_N | triggered_IR == IR_S))
+		attackMode = true;
+	else
+		attackMode = false;
+	
+	
+	
 }
 
 /**
@@ -195,13 +253,13 @@ void Sumo2017::IR_sensor_Callback(const std_msgs::UInt32MultiArray msg)
 **/
 void Sumo2017::Line_sensor_Callback(const std_msgs::UInt16MultiArray msg)
 {
-	std::cout << "Got a Line sensor message" << std::endl;
+	//std::cout << "Got a Line sensor message" << std::endl;
 
 	uint8_t tempState = 0;
 	// Set the bit for each of the line sensors, 1 if they exceede the trigger and 0 if not.
 	for (int i = 0; i < 4; i++)
 	{
-		tempState |= (msg.data[i] > Line_TriggerThreshold) ? 1 << i : 0x00;
+		tempState |= (msg.data[i] < Line_TriggerThreshold) ? 1 << i : 0x00;
 	}
 
 	// If this state is different to the last one then save it and set the old one to the last state
@@ -210,12 +268,14 @@ void Sumo2017::Line_sensor_Callback(const std_msgs::UInt16MultiArray msg)
 		lastLineSensorState = lineSensorState;
 		lineSensorState = tempState;
 	}
+	printf("LineSensorState = %x\n", lineSensorState);
 
 }
 
-void Sumo2017::PublishMotorTwist()
+void Sumo2017::PublishMotorTwist(geometry_msgs::Twist twist_msg)
 {
-	std::cout << "Publishing a motor twist" << std::endl;
+	//std::cout << "Publishing a motor twist" << std::endl;
+	vel_set_pub.publish(twist_msg); 
 }
 
 
@@ -232,11 +292,16 @@ int main(int argc, char** argv)
 
 	std::cout << "Starting Sumo2017 main control node.\n";
 
+	std::cout << "Press any key to start 5 second sleep." << std::endl;
+	std::cin.ignore();
+	std::cout << "Sleeping for 5 seconds ..." << std::endl;
+	ros::Duration(5.0).sleep();
+	std::cout << "Done Sleeping! Ecexuting node." << std::endl;
+
 	// 50ms loop rate
 	ros::Rate loop_rate(50);
 	while (ros::ok())
 	{
-		sumo2017.keyLoop();
 		// Spin it the logic
 		sumo2017.spin();
 
